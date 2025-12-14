@@ -1,12 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Initialize Gemini
-// NOTE: In a real production app, calls should go through a backend to protect the API Key.
-// Per prompt instructions, we use process.env.API_KEY directly here.
+// The API key must be obtained exclusively from the environment variable process.env.API_KEY
+// We assume it is pre-configured and accessible.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const extractDrugData = async (base64Image: string): Promise<any[]> => {
   try {
+    if (!process.env.API_KEY) {
+        throw new Error("مفتاح API غير موجود. الرجاء التأكد من إعدادات النظام.");
+    }
+
     const modelId = "gemini-2.5-flash"; // Strong model for vision tasks
 
     const prompt = `
