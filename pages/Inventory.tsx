@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
-import { Drug } from '../types';
-import { Search, Plus, Trash2, Edit2, ChevronUp, ChevronDown, Filter, Download } from 'lucide-react';
+import { Drug, UserRole } from '../types';
+import { Search, Plus, Trash2, Edit2, ChevronUp, ChevronDown, Filter, Download, FileJson, FileSpreadsheet, FileText } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export const Inventory: React.FC = () => {
   const [drugs, setDrugs] = useState<Drug[]>([]);
@@ -10,12 +13,29 @@ export const Inventory: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<{ key: keyof Drug; direction: 'asc' | 'desc' } | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingDrug, setEditingDrug] = useState<Drug | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Form State
   const [formData, setFormData] = useState<Partial<Drug>>({});
 
   useEffect(() => {
     refreshData();
+    const sessionStr = sessionStorage.getItem('pharma_session');
+    if (sessionStr) {
+        const user = JSON.parse(sessionStr);
+        setCurrentUserRole(user.role);
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+        if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+            setShowExportMenu(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+
   }, []);
 
   const refreshData = () => {
@@ -44,13 +64,11 @@ export const Inventory: React.FC = () => {
         const aValue = a[sortConfig.key];
         const bValue = b[sortConfig.key];
         
-        // Handle string sorting (Arabic/English)
         if (typeof aValue === 'string' && typeof bValue === 'string') {
            return sortConfig.direction === 'asc' 
              ? aValue.localeCompare(bValue, ['ar', 'en']) 
              : bValue.localeCompare(aValue, ['ar', 'en']);
         }
-        // Handle numbers
         if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
         if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
         return 0;
@@ -101,6 +119,89 @@ export const Inventory: React.FC = () => {
     refreshData();
   };
 
+  // --- Export Functions ---
+
+  const prepareExportData = () => {
+      return sortedDrugs.map(d => ({
+          'الإسم التجاري': d.tradeName,
+          'الوكيل': d.agentName,
+          'المصنع': d.manufacturer,
+          'سعر الجمهور': d.publicPrice,
+          'سعر الصيدلي': d.agentPrice,
+          'قبل الخصم': d.priceBeforeDiscount,
+          'نسبة الخصم %': d.discountPercent,
+          'تاريخ الإضافة': new Date(d.createdAt).toLocaleDateString('ar-EG')
+      }));
+  };
+
+  const exportToExcel = () => {
+    try {
+      const data = prepareExportData();
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "المخزون");
+      XLSX.writeFile(wb, `PharmaEye_Inventory_${new Date().toISOString().split('T')[0]}.xlsx`);
+      setShowExportMenu(false);
+    } catch (error) {
+      console.error(error);
+      alert('حدث خطأ أثناء تصدير Excel');
+    }
+  };
+
+  const exportToJSON = () => {
+    try {
+      const data = JSON.stringify(sortedDrugs, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PharmaEye_Inventory_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      setShowExportMenu(false);
+    } catch (error) {
+      console.error(error);
+      alert('حدث خطأ أثناء تصدير JSON');
+    }
+  };
+
+  const exportToPDF = () => {
+    try {
+      const doc = new jsPDF();
+      const tableColumn = ["Trade Name", "Agent", "Price (Pub)", "Price (Ag)", "Disc %"];
+      const tableRows: any[] = [];
+
+      sortedDrugs.forEach(drug => {
+        // Use english headers but keep data as is. 
+        // Note: Arabic characters might not render correctly in standard jsPDF without custom fonts.
+        const drugData = [
+          drug.tradeName,
+          drug.agentName,
+          drug.publicPrice.toFixed(2),
+          drug.agentPrice.toFixed(2),
+          drug.discountPercent + '%'
+        ];
+        tableRows.push(drugData);
+      });
+
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 20,
+        theme: 'grid',
+        styles: { fontSize: 8, halign: 'right' },
+        headStyles: { fillColor: [13, 148, 136], halign: 'left' } 
+      });
+
+      doc.text("PharmaEye Inventory Report", 14, 15);
+      doc.save(`PharmaEye_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+      setShowExportMenu(false);
+    } catch (error) {
+      console.error("PDF Export Error:", error);
+      alert("حدث خطأ أثناء تصدير PDF. تأكد من المتصفح.");
+    }
+  };
+
+
   const SortIcon = ({ colKey }: { colKey: keyof Drug }) => {
     if (sortConfig?.key !== colKey) return <div className="w-4 h-4 opacity-20"><Filter size={14} /></div>;
     return sortConfig.direction === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />;
@@ -121,6 +222,38 @@ export const Inventory: React.FC = () => {
               className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 transition-all outline-none"
             />
           </div>
+          
+          {/* Admin Export Menu */}
+          {currentUserRole === UserRole.ADMIN && (
+              <div className="relative" ref={exportMenuRef}>
+                  <button 
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="px-4 py-2.5 bg-white text-gray-700 border border-gray-200 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center gap-2 shadow-sm"
+                  >
+                    <Download size={20} />
+                    <span className="hidden md:inline">تصدير</span>
+                    <ChevronDown size={16} className={`transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showExportMenu && (
+                    <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 animate-fade-in overflow-hidden">
+                        <button onClick={exportToExcel} className="w-full text-right px-4 py-3 hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50">
+                            <FileSpreadsheet size={18} className="text-green-600" />
+                            <span>ملف إكسل (Excel)</span>
+                        </button>
+                         <button onClick={exportToPDF} className="w-full text-right px-4 py-3 hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50">
+                            <FileText size={18} className="text-red-600" />
+                            <span>ملف PDF</span>
+                        </button>
+                         <button onClick={exportToJSON} className="w-full text-right px-4 py-3 hover:bg-gray-50 flex items-center gap-3 transition-colors">
+                            <FileJson size={18} className="text-yellow-600" />
+                            <span>ملف JSON</span>
+                        </button>
+                    </div>
+                  )}
+              </div>
+          )}
+
           <button 
             onClick={handleAdd}
             className="px-4 py-2.5 bg-primary-600 text-white rounded-xl font-bold shadow-lg hover:bg-primary-700 transition-colors flex items-center gap-2"

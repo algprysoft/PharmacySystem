@@ -1,72 +1,84 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
-// The API key must be obtained exclusively from the environment variable process.env.API_KEY
-// We assume it is pre-configured and accessible.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-export const extractDrugData = async (base64Image: string): Promise<any[]> => {
+export const extractDrugData = async (base64Data: string, mimeType: string = "image/jpeg"): Promise<any[]> => {
   try {
-    if (!process.env.API_KEY) {
-        throw new Error("مفتاح API غير موجود. الرجاء التأكد من إعدادات النظام.");
+    // Check if API KEY is available before attempting to connect
+    // @ts-ignore
+    const apiKey = typeof process !== "undefined" && process.env ? process.env.API_KEY : null;
+
+    if (!apiKey) {
+        throw new Error("مفتاح API غير متوفر. يرجى التأكد من إعدادات النظام.");
     }
 
-    const modelId = "gemini-2.5-flash"; // Strong model for vision tasks
+    // Initialize the client inside the function to ensure we use the latest env state
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    const modelId = "gemini-2.5-flash";
 
+    // We remove the strict Schema and rely on the prompt + JSON MIME type for flexibility.
     const prompt = `
-      You are an expert pharmaceutical data entry specialist. 
-      Analyze the provided image (invoice, list, or handwritten note) and extract drug information into a structured JSON format.
+      You are a pharmaceutical data entry assistant.
+      Analyze the image/PDF and extract drug/medicine items into a JSON Array.
       
-      The required columns are:
-      1. Agent Name (اسم الوكيل)
-      2. Manufacturer (الشركة المصنعة)
-      3. Trade Name (الإسم التجاري)
-      4. Public Price (السعر للجمهور) - Number
-      5. Agent Price (سعر الوكيل) - Number
-      6. Price Before Discount (السعر قبل التخفيض) - Number
-      7. Discount Percentage (نسبة التخفيض) - Number
+      Focus on extracting this tabular data:
+      - tradeName: The commercial name of the drug (English or Arabic).
+      - agentName: The distributor or agent name.
+      - manufacturer: The manufacturing company.
+      - publicPrice: The price for the public (numeric value only, remove currency symbols).
+      - agentPrice: The price for the pharmacy/agent (numeric value only).
+      - discountPercent: The discount percentage (numeric value only).
 
       Rules:
-      - Extract Arabic text EXACTLY as it appears (preserve punctuation, spaces).
-      - Extract English text EXACTLY as it appears.
-      - If a field is missing or cannot be inferred, use null.
-      - If the image contains a table, process all rows.
-      - Return ONLY the JSON array.
+      1. If the document contains a table, extract all rows.
+      2. If a value is missing, use null or 0.
+      3. Clean numeric fields (remove 'SAR', '$', 'ريال', etc.).
+      4. Output ONLY the raw JSON array. Do not include markdown formatting like \`\`\`json.
     `;
 
     const response = await ai.models.generateContent({
       model: modelId,
       contents: {
         parts: [
-          { inlineData: { mimeType: "image/jpeg", data: base64Image } },
+          { inlineData: { mimeType: mimeType, data: base64Data } },
           { text: prompt }
         ]
       },
       config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              agentName: { type: Type.STRING },
-              manufacturer: { type: Type.STRING },
-              tradeName: { type: Type.STRING },
-              publicPrice: { type: Type.NUMBER },
-              agentPrice: { type: Type.NUMBER },
-              priceBeforeDiscount: { type: Type.NUMBER },
-              discountPercent: { type: Type.NUMBER },
-            }
-          }
-        }
+        responseMimeType: "application/json"
       }
     });
 
-    if (response.text) {
-      return JSON.parse(response.text);
+    let text = response.text || "[]";
+
+    // Robust JSON extraction: Find the first '[' and last ']'
+    const startIndex = text.indexOf('[');
+    const endIndex = text.lastIndexOf(']');
+    
+    if (startIndex !== -1 && endIndex !== -1) {
+        text = text.substring(startIndex, endIndex + 1);
     }
-    throw new Error("No data returned from AI");
-  } catch (error) {
-    console.error("OCR Extraction Error:", error);
+
+    try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+            return parsed;
+        } else if (typeof parsed === 'object' && parsed !== null) {
+            // Sometimes it wraps in { "items": [...] }
+            return Object.values(parsed).find(val => Array.isArray(val)) as any[] || [];
+        }
+        return [];
+    } catch (e) {
+        console.error("JSON Parse Error:", text);
+        return [];
+    }
+
+  } catch (error: any) {
+    console.error("Gemini OCR Error:", error);
+    
+    // Provide a more user-friendly error message if possible
+    if (error.message && (error.message.includes('API key') || error.message.includes('permission denied'))) {
+        throw new Error("فشل الاتصال: مفتاح API غير صالح أو غير موجود.");
+    }
+    
     throw error;
   }
 };
