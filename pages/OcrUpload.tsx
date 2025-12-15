@@ -15,7 +15,9 @@ import {
   Files,
   Play,
   Pause,
-  RefreshCw
+  RefreshCw,
+  Clock,
+  Ban
 } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
@@ -23,7 +25,7 @@ const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now()
 interface QueueItem {
   id: string;
   file: File;
-  status: 'pending' | 'processing' | 'success' | 'error';
+  status: 'pending' | 'processing' | 'success' | 'error' | 'waiting' | 'skipped';
   message?: string;
 }
 
@@ -35,7 +37,7 @@ export const OcrUpload: React.FC = () => {
   
   // Stats
   const completedCount = queue.filter(q => q.status === 'success').length;
-  const errorCount = queue.filter(q => q.status === 'error').length;
+  const errorCount = queue.filter(q => q.status === 'error' || q.status === 'skipped').length;
   const progress = queue.length > 0 ? Math.round((completedCount + errorCount) / queue.length * 100) : 0;
 
   // Ref for auto-scrolling
@@ -88,47 +90,86 @@ export const OcrUpload: React.FC = () => {
     setStopSignal(false);
 
     // Filter pending items
-    const pendingItems = queue.filter(item => item.status === 'pending' || item.status === 'error');
+    const pendingItems = queue.filter(item => item.status === 'pending' || item.status === 'error' || item.status === 'skipped');
 
     for (const item of pendingItems) {
-      if (stopSignal) break; // Check for stop signal
+      if (stopSignal) break;
 
-      // Update UI to processing current item
-      setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'processing' } : q));
+      let success = false;
+      let retryCount = 0;
+      const MAX_RETRIES = 2; // Reduced retries to avoid wasting time if daily limit is hit
 
-      try {
-        const base64Data = await convertFileToBase64(item.file);
-        const mimeType = item.file.type || (item.file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-        
-        const rawData = await extractDrugData(base64Data, mimeType);
-        
-        if (!rawData || rawData.length === 0) {
-           throw new Error("لم يتم العثور على بيانات");
-        }
+      while (!success && retryCount < MAX_RETRIES) {
+         if (stopSignal) break;
 
-        const processedRows = rawData.map((d: any) => ({
-           ...d,
-           tempId: generateId(),
-           sourceFile: item.file.name, // Track source
-           tradeName: d.tradeName || d.ItemName || d.name || 'غير معروف',
-           agentName: d.agentName || '-',
-           manufacturer: d.manufacturer || '-',
-           publicPrice: parseFloat(d.publicPrice) || 0,
-           agentPrice: parseFloat(d.agentPrice) || 0,
-           priceBeforeDiscount: parseFloat(d.priceBeforeDiscount) || parseFloat(d.publicPrice) || 0,
-           discountPercent: parseFloat(d.discountPercent) || 0
-        }));
+         // Update UI to processing
+         setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'processing', message: undefined } : q));
 
-        setExtractedData(prev => [...prev, ...processedRows]);
-        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success' } : q));
+         try {
+            const base64Data = await convertFileToBase64(item.file);
+            const mimeType = item.file.type || (item.file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+            
+            const rawData = await extractDrugData(base64Data, mimeType);
+            
+            if (!rawData || rawData.length === 0) {
+              throw new Error("لم يتم العثور على بيانات");
+            }
 
-      } catch (error: any) {
-        console.error(`Error processing ${item.file.name}:`, error);
-        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', message: error.message || 'فشل المعالجة' } : q));
+            const processedRows = rawData.map((d: any) => ({
+              ...d,
+              tempId: generateId(),
+              sourceFile: item.file.name,
+              tradeName: d.tradeName || d.ItemName || d.name || 'غير معروف',
+              agentName: d.agentName || '-',
+              manufacturer: d.manufacturer || '-',
+              publicPrice: parseFloat(d.publicPrice) || 0,
+              agentPrice: parseFloat(d.agentPrice) || 0,
+              priceBeforeDiscount: parseFloat(d.priceBeforeDiscount) || parseFloat(d.publicPrice) || 0,
+              discountPercent: parseFloat(d.discountPercent) || 0
+            }));
+
+            setExtractedData(prev => [...prev, ...processedRows]);
+            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'success' } : q));
+            success = true;
+
+         } catch (error: any) {
+            console.error(`Error processing ${item.file.name}:`, error);
+            
+            // Check for Rate Limit (429)
+            if (JSON.stringify(error).includes('429') || error.message?.includes('429') || error.message?.includes('quota')) {
+                // If we already retried and failed again with 429, it's likely the Daily Limit
+                if (retryCount > 0) {
+                     setQueue(prev => prev.map(q => q.id === item.id ? { 
+                        ...q, 
+                        status: 'skipped', 
+                        message: `تم الوصول للحد اليومي. حاول غداً.` 
+                    } : q));
+                    setStopSignal(true); // Stop the whole queue
+                    alert("يبدو أنك وصلت للحد الأقصى اليومي (Daily Quota) من Google. \nيرجى المحاولة غداً أو استخدام مفتاح API مدفوع.");
+                    break;
+                }
+
+                const waitTime = 65000; // Wait 65 seconds
+                setQueue(prev => prev.map(q => q.id === item.id ? { 
+                    ...q, 
+                    status: 'waiting', 
+                    message: `تبريد النظام (60 ثانية)...` 
+                } : q));
+                
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                retryCount++; 
+            } else {
+                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', message: error.message || 'فشل المعالجة' } : q));
+                break; 
+            }
+         }
       }
       
-      // Small delay to prevent freezing UI and give API breathing room
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Increased Safety Delay: 10 seconds between files
+      // This ensures max 6 requests per minute, well below the 15 limit.
+      if (success && !stopSignal) {
+         await new Promise(resolve => setTimeout(resolve, 10000));
+      }
     }
 
     setIsProcessing(false);
@@ -172,7 +213,7 @@ export const OcrUpload: React.FC = () => {
             <ScanLine className="text-primary-600" />
             المعالجة الجماعية (Bulk OCR)
           </h1>
-          <p className="text-gray-500 mt-1">يمكنك رفع مئات الملفات وسيتم معالجتها تلقائياً</p>
+          <p className="text-gray-500 mt-1">نظام ذكي يعالج الملفات تلقائياً (فاصل زمني آمن: 10 ثوانٍ)</p>
         </div>
         
         <div className="flex gap-3">
@@ -237,28 +278,43 @@ export const OcrUpload: React.FC = () => {
                  </div>
              ) : (
                  queue.map((item, idx) => (
-                     <div key={item.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50 hover:bg-white hover:shadow-sm transition-all">
+                     <div key={item.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                         item.status === 'waiting' ? 'bg-orange-50 border-orange-200' : 
+                         item.status === 'skipped' ? 'bg-red-50 border-red-200' :
+                         'bg-gray-50 border-gray-100 hover:bg-white'
+                     }`}>
                         <div className="font-mono text-xs text-gray-400 w-6">{idx + 1}</div>
                         <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-primary-600 border border-gray-100 shrink-0">
-                            {item.status === 'processing' ? <Loader2 size={20} className="animate-spin" /> : <FileText size={20} />}
+                            {item.status === 'processing' ? <Loader2 size={20} className="animate-spin" /> : 
+                             item.status === 'waiting' ? <Clock size={20} className="animate-pulse text-orange-500" /> :
+                             item.status === 'skipped' ? <Ban size={20} className="text-red-500" /> :
+                             <FileText size={20} />}
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-gray-700 truncate dir-ltr text-right">{item.file.name}</p>
                             <p className={`text-xs ${
                                 item.status === 'success' ? 'text-green-600' : 
                                 item.status === 'error' ? 'text-red-500' : 
-                                item.status === 'processing' ? 'text-blue-600' : 'text-gray-400'
+                                item.status === 'processing' ? 'text-blue-600' : 
+                                item.status === 'waiting' ? 'text-orange-600 font-bold' : 
+                                item.status === 'skipped' ? 'text-red-600 font-bold' : 'text-gray-400'
                             }`}>
                                 {item.status === 'pending' && 'في الانتظار'}
                                 {item.status === 'processing' && 'جاري المعالجة...'}
+                                {item.status === 'waiting' && (item.message || 'تبريد النظام...')}
                                 {item.status === 'success' && 'تم بنجاح'}
                                 {item.status === 'error' && (item.message || 'فشل')}
+                                {item.status === 'skipped' && (item.message || 'تجاوز')}
                             </p>
                         </div>
                         {item.status === 'success' ? (
                             <CheckCircle size={18} className="text-green-500" />
                         ) : item.status === 'error' ? (
                             <AlertTriangle size={18} className="text-red-500" />
+                        ) : item.status === 'waiting' ? (
+                             <span className="text-xs text-orange-500 font-mono">...</span>
+                        ) : item.status === 'skipped' ? (
+                             <Ban size={18} className="text-red-500" />
                         ) : (
                             <button onClick={() => removeQueueItem(item.id)} disabled={isProcessing} className="text-gray-300 hover:text-red-500 disabled:opacity-0">
                                 <X size={18} />
@@ -280,7 +336,7 @@ export const OcrUpload: React.FC = () => {
                     }`}
                  >
                     <Play size={20} className="fill-current" />
-                    {queue.some(i => i.status === 'success' || i.status === 'error') ? 'متابعة المعالجة' : 'بدء المعالجة الجماعية'}
+                    {queue.some(i => i.status === 'success' || i.status === 'error' || i.status === 'skipped') ? 'متابعة المعالجة' : 'بدء المعالجة الجماعية'}
                  </button>
              ) : (
                  <button

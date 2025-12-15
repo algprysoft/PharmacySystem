@@ -11,7 +11,8 @@ import {
   Bell,
   WifiOff,
   X,
-  Database
+  Database,
+  Upload
 } from 'lucide-react';
 import { User, UserRole, Notification } from '../types';
 import { db } from '../services/db';
@@ -77,6 +78,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     { label: 'لوحة التحكم', icon: LayoutDashboard, path: '/dashboard', roles: [UserRole.ADMIN, UserRole.EMPLOYEE] },
     { label: 'استخراج ذكي (OCR)', icon: Scan, path: '/ocr', roles: [UserRole.ADMIN] },
     { label: 'المخزون والادوية', icon: Pill, path: '/inventory', roles: [UserRole.ADMIN, UserRole.EMPLOYEE] },
+    { label: 'استيراد وتصدير', icon: Upload, path: '/import', roles: [UserRole.ADMIN] },
     { label: 'المستخدمين', icon: Users, path: '/users', roles: [UserRole.ADMIN] },
     { label: 'الإعدادات', icon: Settings, path: '/settings', roles: [UserRole.ADMIN, UserRole.EMPLOYEE] },
   ];

@@ -6,6 +6,7 @@ import { Inventory } from './pages/Inventory';
 import { OcrUpload } from './pages/OcrUpload';
 import { Users } from './pages/Users';
 import { Settings } from './pages/Settings';
+import { ImportData } from './pages/ImportData';
 import { User } from './types';
 import { db } from './services/db';
 import { Lock, User as UserIcon, Loader, AlertTriangle, Cloud, CloudOff } from 'lucide-react';
@@ -54,7 +55,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: User) => void }) => {
           <div>
              <label className="block text-sm font-bold text-gray-700 mb-1">اسم المستخدم / البريد الإلكتروني</label>
              <div className="relative">
-               <UserIcon className="absolute right-3 top-3 text-gray-400" size={20} />
+               <UserIcon className="absolute right-3 top-3.5 text-gray-400" size={20} />
                <input 
                  type="text" 
                  value={identifier}
@@ -68,7 +69,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: User) => void }) => {
           <div>
              <label className="block text-sm font-bold text-gray-700 mb-1">كلمة المرور</label>
              <div className="relative">
-               <Lock className="absolute right-3 top-3 text-gray-400" size={20} />
+               <Lock className="absolute right-3 top-3.5 text-gray-400" size={20} />
                <input 
                  type="password" 
                  value={password}
@@ -145,6 +146,8 @@ const App: React.FC = () => {
         <Route path="/ocr" element={user ? <Layout user={user} onLogout={handleLogout}><OcrUpload /></Layout> : <Navigate to="/login" />} />
         
         <Route path="/inventory" element={user ? <Layout user={user} onLogout={handleLogout}><Inventory /></Layout> : <Navigate to="/login" />} />
+
+        <Route path="/import" element={user ? <Layout user={user} onLogout={handleLogout}><ImportData /></Layout> : <Navigate to="/login" />} />
         
         <Route path="/users" element={user ? <Layout user={user} onLogout={handleLogout}><Users /></Layout> : <Navigate to="/login" />} />
         
