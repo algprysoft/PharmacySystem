@@ -1,16 +1,38 @@
-
 import { Drug, User, UserRole, Notification } from '../types';
+import { createClient } from '@supabase/supabase-js';
 
-// Keys for LocalStorage
+// --- CONFIGURATION ---
+// Access environment variables safely
+const getEnvVar = (key: string) => {
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+    return (import.meta as any).env[key] || '';
+  }
+  return '';
+};
+
+const SUPABASE_URL = getEnvVar('VITE_SUPABASE_URL');
+const SUPABASE_KEY = getEnvVar('VITE_SUPABASE_KEY');
+
+const isCloudEnabled = !!(SUPABASE_URL && SUPABASE_KEY);
+let supabase: any = null;
+
+if (isCloudEnabled) {
+    try {
+      supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    } catch (e) {
+      console.error("Supabase init failed:", e);
+    }
+}
+
+// Keys for LocalStorage (Fallback)
 const KEYS = {
   USERS: 'pharma_users',
   DRUGS: 'pharma_drugs',
   NOTIFICATIONS: 'pharma_notifications',
-  SETTINGS: 'pharma_settings'
 };
 
-// Seed initial admin if not exists
-const seedData = () => {
+// --- INITIALIZATION ---
+const seedLocalData = () => {
   if (!localStorage.getItem(KEYS.USERS)) {
     const admin: User = {
       id: 'admin-1',
@@ -18,16 +40,15 @@ const seedData = () => {
       email: 'admin@pharma.com',
       fullName: 'المدير العام',
       role: UserRole.ADMIN,
-      phone: '966500000000'
+      phone: '966500000000',
+      password: 'root1'
     };
-    // Store password inside the object for this local-only demo
-    localStorage.setItem(KEYS.USERS, JSON.stringify([{ ...admin, password: 'root1' }]));
+    localStorage.setItem(KEYS.USERS, JSON.stringify([admin]));
     
-    // Seed initial notifications
     const welcomeNote: Notification = {
       id: 'note-1',
       title: 'مرحباً بك في PharmaEye',
-      message: 'تم تثبيت النظام بنجاح. يمكنك الآن البدء بإضافة الأدوية.',
+      message: 'النظام يعمل الآن.',
       read: false,
       date: Date.now()
     };
@@ -38,14 +59,35 @@ const seedData = () => {
   }
 };
 
-seedData();
+// Run seed only if offline or first load
+seedLocalData();
 
 export const db = {
+  isCloud: isCloudEnabled,
+
   // --- User Operations ---
-  getUsers: (): any[] => JSON.parse(localStorage.getItem(KEYS.USERS) || '[]'),
+  getUsers: async (): Promise<User[]> => {
+    if (isCloudEnabled && supabase) {
+        const { data, error } = await supabase.from('users').select('*');
+        if (error) { console.error(error); return []; }
+        return data;
+    }
+    return JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+  },
   
-  addUser: (user: any) => {
-    const users = db.getUsers();
+  addUser: async (user: any) => {
+    if (isCloudEnabled && supabase) {
+        // Check duplicates
+        const { data } = await supabase.from('users').select('id').or(`username.eq.${user.username},email.eq.${user.email}`);
+        if (data && data.length > 0) throw new Error('اسم المستخدم أو البريد موجود مسبقاً');
+        
+        const { error } = await supabase.from('users').insert(user);
+        if (error) throw error;
+        return;
+    }
+
+    // Local
+    const users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
     if (users.some((u: any) => u.username === user.username || u.email === user.email)) {
       throw new Error('اسم المستخدم أو البريد الإلكتروني موجود مسبقاً');
     }
@@ -53,51 +95,70 @@ export const db = {
     localStorage.setItem(KEYS.USERS, JSON.stringify(users));
   },
 
-  updateUser: (updatedUser: Partial<User> & { id: string, password?: string }) => {
-    const users = db.getUsers();
-    const index = users.findIndex(u => u.id === updatedUser.id);
+  updateUser: async (updatedUser: Partial<User> & { id: string, password?: string }) => {
+    if (isCloudEnabled && supabase) {
+       // Ideally check duplicates via DB constraint or query, skipping for simplicity in this demo
+       const updateData = { ...updatedUser };
+       if (!updateData.password) delete updateData.password;
+       
+       const { data, error } = await supabase.from('users').update(updateData).eq('id', updatedUser.id).select().single();
+       if (error) throw error;
+       return data as User;
+    }
+
+    // Local
+    const users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+    const index = users.findIndex((u: any) => u.id === updatedUser.id);
     
     if (index !== -1) {
-      // Check for duplicate username/email if they are being changed
       if (updatedUser.username || updatedUser.email) {
           const duplicate = users.find((u: any) => 
             u.id !== updatedUser.id && 
             ((updatedUser.username && u.username === updatedUser.username) || 
              (updatedUser.email && u.email === updatedUser.email))
           );
-          if (duplicate) {
-              throw new Error('اسم المستخدم أو البريد الإلكتروني مستخدم بالفعل من قبل شخص آخر');
-          }
+          if (duplicate) throw new Error('مستخدم بالفعل');
       }
 
       const mergedUser = { ...users[index], ...updatedUser };
-      // Remove empty password field if not provided
-      if (!updatedUser.password) {
-        mergedUser.password = users[index].password;
-      }
-
+      if (!updatedUser.password) mergedUser.password = users[index].password;
       users[index] = mergedUser;
       localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-      
       const { password, ...safeUser } = mergedUser;
       return safeUser as User;
     }
     return null;
   },
 
-  deleteUser: (id: string) => {
-    const users = db.getUsers();
-    // Prevent deleting the last admin
-    const userToDelete = users.find((u:any) => u.id === id);
-    if (userToDelete?.username === 'root') {
-        throw new Error('لا يمكن حذف المدير الرئيسي');
+  deleteUser: async (id: string) => {
+    if (isCloudEnabled && supabase) {
+        const { data } = await supabase.from('users').select('username').eq('id', id).single();
+        if (data?.username === 'root') throw new Error('لا يمكن حذف المدير الرئيسي');
+        await supabase.from('users').delete().eq('id', id);
+        return;
     }
+    
+    const users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+    const userToDelete = users.find((u:any) => u.id === id);
+    if (userToDelete?.username === 'root') throw new Error('لا يمكن حذف المدير الرئيسي');
     const filtered = users.filter((u: any) => u.id !== id);
     localStorage.setItem(KEYS.USERS, JSON.stringify(filtered));
   },
 
-  authenticate: (identifier: string, pass: string): User | null => {
-    const users = db.getUsers();
+  authenticate: async (identifier: string, pass: string): Promise<User | null> => {
+    if (isCloudEnabled && supabase) {
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .or(`username.eq.${identifier},email.eq.${identifier}`)
+            .eq('password', pass)
+            .single();
+        
+        if (error || !data) return null;
+        return data as User;
+    }
+
+    const users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
     const user = users.find((u: any) => (u.username === identifier || u.email === identifier) && u.password === pass);
     if (user) {
       const { password, ...safeUser } = user;
@@ -106,80 +167,103 @@ export const db = {
     return null;
   },
 
-  // --- Biometrics Operations ---
-  registerDeviceForBiometrics: (userId: string, credentialId: string) => {
-    const users = db.getUsers();
-    const index = users.findIndex((u: any) => u.id === userId);
-    if (index !== -1) {
-        users[index] = { ...users[index], biometricCredentialId: credentialId };
-        localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-        // Save local marker for this device to allow login
-        localStorage.setItem('pharma_bio_cred_id', credentialId);
+  // --- Drugs Operations ---
+  getDrugs: async (): Promise<Drug[]> => {
+    if (isCloudEnabled && supabase) {
+        const { data, error } = await supabase.from('drugs').select('*');
+        if (error) return [];
+        return data;
     }
+    return JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]');
   },
-
-  authenticateWithDeviceToken: (credentialId: string): User | null => {
-      if (!credentialId) return null;
-      const users = db.getUsers();
-      const user = users.find((u: any) => u.biometricCredentialId === credentialId);
-      if (user) {
-          const { password, ...safeUser } = user;
-          return safeUser as User;
-      }
-      return null;
-  },
-
-  // --- Drug Operations ---
-  getDrugs: (): Drug[] => JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]'),
   
-  addDrug: (drug: Drug) => {
-    const drugs = db.getDrugs();
+  addDrug: async (drug: Drug) => {
+    if (isCloudEnabled && supabase) {
+        await supabase.from('drugs').insert(drug);
+        return;
+    }
+    const drugs = JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]');
     drugs.push(drug);
     localStorage.setItem(KEYS.DRUGS, JSON.stringify(drugs));
   },
   
-  addDrugsBatch: (newDrugs: Drug[]) => {
-    const drugs = db.getDrugs();
+  addDrugsBatch: async (newDrugs: Drug[]) => {
+    if (isCloudEnabled && supabase) {
+        await supabase.from('drugs').insert(newDrugs);
+        return;
+    }
+    const drugs = JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]');
     localStorage.setItem(KEYS.DRUGS, JSON.stringify([...drugs, ...newDrugs]));
   },
   
-  updateDrug: (id: string, updates: Partial<Drug>) => {
-    const drugs = db.getDrugs();
-    const idx = drugs.findIndex(d => d.id === id);
+  updateDrug: async (id: string, updates: Partial<Drug>) => {
+    if (isCloudEnabled && supabase) {
+        await supabase.from('drugs').update(updates).eq('id', id);
+        return;
+    }
+    const drugs = JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]');
+    const idx = drugs.findIndex((d: Drug) => d.id === id);
     if (idx !== -1) {
       drugs[idx] = { ...drugs[idx], ...updates };
       localStorage.setItem(KEYS.DRUGS, JSON.stringify(drugs));
     }
   },
   
-  deleteDrug: (id: string) => {
-    const drugs = db.getDrugs();
-    const filtered = drugs.filter(d => d.id !== id);
+  deleteDrug: async (id: string) => {
+    if (isCloudEnabled && supabase) {
+        await supabase.from('drugs').delete().eq('id', id);
+        return;
+    }
+    const drugs = JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]');
+    const filtered = drugs.filter((d: Drug) => d.id !== id);
     localStorage.setItem(KEYS.DRUGS, JSON.stringify(filtered));
   },
 
   // --- Notifications ---
-  getNotifications: (): Notification[] => {
+  getNotifications: async (): Promise<Notification[]> => {
+      if (isCloudEnabled && supabase) {
+          const { data } = await supabase.from('notifications').select('*').order('date', { ascending: false });
+          return data || [];
+      }
       const notes = JSON.parse(localStorage.getItem(KEYS.NOTIFICATIONS) || '[]');
       return notes.sort((a: Notification, b: Notification) => b.date - a.date);
   },
   
-  markAllNotificationsRead: () => {
-    const notes = db.getNotifications();
-    const updated = notes.map(n => ({...n, read: true}));
+  markAllNotificationsRead: async () => {
+    if (isCloudEnabled && supabase) {
+        await supabase.from('notifications').update({ read: true }).neq('read', true);
+        return;
+    }
+    const notes = JSON.parse(localStorage.getItem(KEYS.NOTIFICATIONS) || '[]');
+    const updated = notes.map((n: Notification) => ({...n, read: true}));
     localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify(updated));
   },
 
-  addNotification: (note: Notification) => {
-    const notes = db.getNotifications();
+  addNotification: async (note: Notification) => {
+    if (isCloudEnabled && supabase) {
+        await supabase.from('notifications').insert(note);
+        return;
+    }
+    const notes = JSON.parse(localStorage.getItem(KEYS.NOTIFICATIONS) || '[]');
     localStorage.setItem(KEYS.NOTIFICATIONS, JSON.stringify([note, ...notes]));
   },
 
-  // --- Backup Feature ---
-  exportData: () => {
+  // --- Export ---
+  exportData: async () => {
+      let users = [], drugs = [];
+      if (isCloudEnabled && supabase) {
+          const uRes = await supabase.from('users').select('*');
+          const dRes = await supabase.from('drugs').select('*');
+          users = uRes.data || [];
+          drugs = dRes.data || [];
+      } else {
+          users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+          drugs = JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]');
+      }
+
       const data = {
-          users: JSON.parse(localStorage.getItem(KEYS.USERS) || '[]'),
-          drugs: JSON.parse(localStorage.getItem(KEYS.DRUGS) || '[]'),
+          users,
+          drugs,
           timestamp: new Date().toISOString()
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -188,5 +272,34 @@ export const db = {
       a.href = url;
       a.download = `pharma_eye_backup_${new Date().toISOString().split('T')[0]}.json`;
       a.click();
+  },
+
+  // --- Biometrics Helpers (Stubbed for Supabase) ---
+  registerDeviceForBiometrics: async (userId: string, credentialId: string) => {
+      if (isCloudEnabled && supabase) {
+          await supabase.from('users').update({ biometricCredentialId: credentialId }).eq('id', userId);
+      }
+      const users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+      const idx = users.findIndex((u:any) => u.id === userId);
+      if (idx !== -1) {
+          users[idx].biometricCredentialId = credentialId;
+          localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+      }
+      localStorage.setItem('pharma_bio_cred_id', credentialId);
+  },
+  
+  authenticateWithDeviceToken: async (credentialId: string): Promise<User | null> => {
+      if (!credentialId) return null;
+      if (isCloudEnabled && supabase) {
+          const { data } = await supabase.from('users').select('*').eq('biometricCredentialId', credentialId).single();
+          return data as User;
+      }
+      const users = JSON.parse(localStorage.getItem(KEYS.USERS) || '[]');
+      const user = users.find((u: any) => u.biometricCredentialId === credentialId);
+      if (user) {
+          const { password, ...safeUser } = user;
+          return safeUser as User;
+      }
+      return null;
   }
 };

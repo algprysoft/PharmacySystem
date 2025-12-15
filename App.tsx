@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
@@ -9,27 +8,42 @@ import { Users } from './pages/Users';
 import { Settings } from './pages/Settings';
 import { User } from './types';
 import { db } from './services/db';
-import { Lock, User as UserIcon, Loader, AlertTriangle } from 'lucide-react';
+import { Lock, User as UserIcon, Loader, AlertTriangle, Cloud, CloudOff } from 'lucide-react';
 
 // --- Login Page Component ---
 const LoginPage = ({ onLogin }: { onLogin: (u: User) => void }) => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const user = db.authenticate(identifier, password);
-    if (user) {
-      onLogin(user);
-    } else {
-      setError('اسم المستخدم أو كلمة المرور غير صحيحة');
+    setIsLoggingIn(true);
+    setError('');
+    
+    try {
+      const user = await db.authenticate(identifier, password);
+      if (user) {
+        onLogin(user);
+      } else {
+        setError('اسم المستخدم أو كلمة المرور غير صحيحة');
+      }
+    } catch (e) {
+      setError('حدث خطأ أثناء الاتصال');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md animate-scale-up border border-gray-100">
+      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md animate-scale-up border border-gray-100 relative">
+        {/* Connection Status Indicator */}
+        <div className={`absolute top-4 left-4 p-2 rounded-full ${db.isCloud ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'}`} title={db.isCloud ? "متصل بقاعدة البيانات السحابية" : "وضع التخزين المحلي"}>
+             {db.isCloud ? <Cloud size={20} /> : <CloudOff size={20} />}
+        </div>
+
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-primary-600 rounded-xl mx-auto flex items-center justify-center text-white text-2xl font-bold shadow-lg mb-4">P</div>
           <h2 className="text-2xl font-bold text-gray-800">تسجيل الدخول</h2>
@@ -73,13 +87,18 @@ const LoginPage = ({ onLogin }: { onLogin: (u: User) => void }) => {
             </div>
           )}
 
-          <button type="submit" className="w-full bg-primary-600 text-white py-3 rounded-xl font-bold hover:bg-primary-700 shadow-lg transition-transform hover:scale-[1.02]">
-            دخول للنظام
+          <button 
+            type="submit" 
+            disabled={isLoggingIn}
+            className="w-full bg-primary-600 text-white py-3 rounded-xl font-bold hover:bg-primary-700 shadow-lg transition-transform hover:scale-[1.02] flex justify-center items-center gap-2"
+          >
+            {isLoggingIn && <Loader className="animate-spin" size={20} />}
+            <span>{isLoggingIn ? 'جاري التحقق...' : 'دخول للنظام'}</span>
           </button>
         </form>
         
         <div className="mt-6 text-center text-xs text-gray-400">
-             PharmaEye System v1.0
+             PharmaEye System v1.1 | {db.isCloud ? 'Cloud Mode' : 'Offline Mode'}
         </div>
       </div>
     </div>

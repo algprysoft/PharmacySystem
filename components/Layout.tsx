@@ -11,6 +11,7 @@ import {
   Bell,
   WifiOff,
   X,
+  Database
 } from 'lucide-react';
 import { User, UserRole, Notification } from '../types';
 import { db } from '../services/db';
@@ -37,7 +38,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     window.addEventListener('online', handleStatusChange);
     window.addEventListener('offline', handleStatusChange);
     
-    setNotifications(db.getNotifications());
+    // Initial fetch
+    fetchNotifications();
 
     const handleClickOutside = (event: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
@@ -53,11 +55,20 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     };
   }, []);
 
+  const fetchNotifications = async () => {
+      try {
+          const data = await db.getNotifications();
+          setNotifications(data);
+      } catch (e) {
+          console.error(e);
+      }
+  };
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const handleMarkAllRead = () => {
-    db.markAllNotificationsRead();
-    setNotifications(db.getNotifications());
+  const handleMarkAllRead = async () => {
+    await db.markAllNotificationsRead();
+    fetchNotifications();
   };
 
   if (!user) return <>{children}</>;
@@ -175,6 +186,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 <span>غير متصل</span>
               </div>
             )}
+
+            {/* DB Status Indicator (Small) */}
+             <div className={`hidden md:flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${db.isCloud ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'}`} title={db.isCloud ? "قاعدة بيانات سحابية" : "تخزين محلي"}>
+                <Database size={14} />
+                <span>{db.isCloud ? 'Cloud' : 'Local'}</span>
+            </div>
             
             <div className="relative" ref={notifRef}>
               <button 

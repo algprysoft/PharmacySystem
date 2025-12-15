@@ -112,7 +112,7 @@ export const OcrUpload: React.FC = () => {
     }
   };
 
-  const saveToInventory = () => {
+  const saveToInventory = async () => {
     if (extractedData.length === 0) return;
 
     const drugs: Drug[] = extractedData.map(item => ({
@@ -128,7 +128,7 @@ export const OcrUpload: React.FC = () => {
       createdAt: Date.now()
     }));
 
-    db.addDrugsBatch(drugs);
+    await db.addDrugsBatch(drugs);
     setStatusMessage({ type: 'success', text: 'تم حفظ جميع البيانات في المخزون' });
     setExtractedData([]);
   };

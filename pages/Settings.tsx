@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { User, UserRole } from '../types';
@@ -19,11 +18,11 @@ export const Settings: React.FC = () => {
     loadUserData();
   }, []);
 
-  const loadUserData = () => {
+  const loadUserData = async () => {
     const sessionStr = sessionStorage.getItem('pharma_session');
     if (sessionStr) {
         const sessionUser = JSON.parse(sessionStr);
-        const users = db.getUsers();
+        const users = await db.getUsers();
         const freshUser = users.find((u: any) => u.id === sessionUser.id);
         if (freshUser) {
             setCurrentUser(freshUser);
@@ -38,12 +37,12 @@ export const Settings: React.FC = () => {
     }
   };
 
-  const handleUpdateProfile = (e: React.FormEvent) => {
+  const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
     setMessage(null);
     try {
-        const updated = db.updateUser({
+        const updated = await db.updateUser({
             id: currentUser.id,
             username: formData.username,
             email: formData.email,
@@ -62,8 +61,8 @@ export const Settings: React.FC = () => {
     }
   };
 
-  const handleExport = () => {
-      db.exportData();
+  const handleExport = async () => {
+      await db.exportData();
       setMessage({ type: 'success', text: 'تم تحميل ملف النسخة الاحتياطية بنجاح' });
       setTimeout(() => setMessage(null), 3000);
   };

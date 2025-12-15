@@ -1,28 +1,36 @@
 {
-  "name": "pharmaeye---نظام-الصيدلي-الذكي",
+  "name": "pharma-eye",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.2.3",
-    "react": "^19.2.3",
-    "@google/genai": "^1.33.0",
-    "react-router-dom": "^7.10.1",
-    "lucide-react": "^0.561.0",
-    "uuid": "^13.0.0",
-    "xlsx": "0.18.5",
-    "jspdf": "2.5.1",
-    "jspdf-autotable": "3.5.29"
+    "@google/genai": "^0.1.1",
+    "@supabase/supabase-js": "^2.39.3",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.5.29",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.1",
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@types/node": "^20.11.19",
+    "@types/react": "^18.2.56",
+    "@types/react-dom": "^18.2.19",
+    "@types/uuid": "^9.0.8",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.4"
   }
 }

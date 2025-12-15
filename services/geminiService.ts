@@ -2,19 +2,25 @@ import { GoogleGenAI } from "@google/genai";
 
 export const extractDrugData = async (base64Data: string, mimeType: string = "image/jpeg"): Promise<any[]> => {
   try {
-    // Check if API KEY is available before attempting to connect
-    // @ts-ignore
-    const apiKey = typeof process !== "undefined" && process.env ? process.env.API_KEY : null;
-
-    if (!apiKey) {
-        throw new Error("مفتاح API غير متوفر. يرجى التأكد من إعدادات النظام.");
+    // Access environment variable safely for Vite
+    let apiKey = '';
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      apiKey = (import.meta as any).env.VITE_API_KEY || '';
+    }
+    
+    // Fallback if defined elsewhere (though less likely in pure Vite)
+    if (!apiKey && typeof process !== 'undefined' && process.env) {
+        apiKey = process.env.API_KEY || '';
     }
 
-    // Initialize the client inside the function to ensure we use the latest env state
+    if (!apiKey) {
+        throw new Error("مفتاح API غير متوفر. يرجى التأكد من إعداد المتغير VITE_API_KEY في Vercel.");
+    }
+
+    // Initialize the client
     const ai = new GoogleGenAI({ apiKey: apiKey });
     const modelId = "gemini-2.5-flash";
 
-    // We remove the strict Schema and rely on the prompt + JSON MIME type for flexibility.
     const prompt = `
       You are a pharmaceutical data entry assistant.
       Analyze the image/PDF and extract drug/medicine items into a JSON Array.
@@ -49,7 +55,7 @@ export const extractDrugData = async (base64Data: string, mimeType: string = "im
 
     let text = response.text || "[]";
 
-    // Robust JSON extraction: Find the first '[' and last ']'
+    // Robust JSON extraction
     const startIndex = text.indexOf('[');
     const endIndex = text.lastIndexOf(']');
     
@@ -62,7 +68,6 @@ export const extractDrugData = async (base64Data: string, mimeType: string = "im
         if (Array.isArray(parsed)) {
             return parsed;
         } else if (typeof parsed === 'object' && parsed !== null) {
-            // Sometimes it wraps in { "items": [...] }
             return Object.values(parsed).find(val => Array.isArray(val)) as any[] || [];
         }
         return [];
@@ -73,12 +78,9 @@ export const extractDrugData = async (base64Data: string, mimeType: string = "im
 
   } catch (error: any) {
     console.error("Gemini OCR Error:", error);
-    
-    // Provide a more user-friendly error message if possible
     if (error.message && (error.message.includes('API key') || error.message.includes('permission denied'))) {
         throw new Error("فشل الاتصال: مفتاح API غير صالح أو غير موجود.");
     }
-    
     throw error;
   }
 };

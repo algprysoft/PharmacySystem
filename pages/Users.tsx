@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { User, UserRole } from '../types';
-import { Plus, Edit2, Trash2, Shield, User as UserIcon } from 'lucide-react';
+import { Plus, Edit2, Trash2, Shield, User as UserIcon, Loader } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 export const Users: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [formData, setFormData] = useState({
@@ -23,14 +23,22 @@ export const Users: React.FC = () => {
     refreshUsers();
   }, []);
 
-  const refreshUsers = () => {
-    setUsers(db.getUsers());
+  const refreshUsers = async () => {
+    setLoading(true);
+    try {
+        const data = await db.getUsers();
+        setUsers(data);
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setLoading(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('هل أنت متأكد من حذف هذا المستخدم؟ لا يمكن التراجع عن هذا الإجراء.')) {
         try {
-            db.deleteUser(id);
+            await db.deleteUser(id);
             refreshUsers();
         } catch (e: any) {
             alert(e.message);
@@ -66,13 +74,13 @@ export const Users: React.FC = () => {
     setError('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
     try {
       if (editingUser) {
-        db.updateUser({
+        await db.updateUser({
           id: editingUser.id,
           ...formData
         });
@@ -81,7 +89,7 @@ export const Users: React.FC = () => {
           id: uuidv4(),
           ...formData
         };
-        db.addUser(newUser);
+        await db.addUser(newUser);
       }
       setShowModal(false);
       refreshUsers();
@@ -107,53 +115,57 @@ export const Users: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {users.map((user) => (
-          <div key={user.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow relative overflow-hidden group">
-            <div className={`absolute top-0 right-0 w-16 h-16 opacity-10 rounded-bl-full ${user.role === UserRole.ADMIN ? 'bg-purple-600' : 'bg-primary-600'}`}></div>
-            
-            <div className="flex items-start justify-between mb-4">
-               <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md ${user.role === UserRole.ADMIN ? 'bg-purple-600' : 'bg-primary-500'}`}>
-                    {user.fullName.charAt(0)}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900">{user.fullName}</h3>
-                    <div className="flex items-center gap-1 text-xs font-medium mt-1">
-                      {user.role === UserRole.ADMIN ? (
-                        <span className="text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <Shield size={10} /> مدير
-                        </span>
-                      ) : (
-                        <span className="text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <UserIcon size={10} /> موظف
-                        </span>
-                      )}
-                    </div>
-                  </div>
-               </div>
-               
-               {user.username !== 'root' && (
-                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => handleEdit(user)} className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
-                    <button onClick={() => handleDelete(user.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
-                 </div>
-               )}
-            </div>
+      {loading ? (
+           <div className="flex justify-center p-12 text-primary-500"><Loader size={32} className="animate-spin" /></div>
+      ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {users.map((user) => (
+              <div key={user.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow relative overflow-hidden group">
+                <div className={`absolute top-0 right-0 w-16 h-16 opacity-10 rounded-bl-full ${user.role === UserRole.ADMIN ? 'bg-purple-600' : 'bg-primary-600'}`}></div>
+                
+                <div className="flex items-start justify-between mb-4">
+                   <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md ${user.role === UserRole.ADMIN ? 'bg-purple-600' : 'bg-primary-500'}`}>
+                        {user.fullName ? user.fullName.charAt(0) : 'U'}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-900">{user.fullName}</h3>
+                        <div className="flex items-center gap-1 text-xs font-medium mt-1">
+                          {user.role === UserRole.ADMIN ? (
+                            <span className="text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Shield size={10} /> مدير
+                            </span>
+                          ) : (
+                            <span className="text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <UserIcon size={10} /> موظف
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                   </div>
+                   
+                   {user.username !== 'root' && (
+                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => handleEdit(user)} className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
+                        <button onClick={() => handleDelete(user.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                     </div>
+                   )}
+                </div>
 
-            <div className="space-y-2 text-sm text-gray-500 border-t border-gray-50 pt-4">
-              <div className="flex justify-between">
-                <span>اسم المستخدم:</span>
-                <span className="font-mono text-gray-700 font-bold">{user.username}</span>
+                <div className="space-y-2 text-sm text-gray-500 border-t border-gray-50 pt-4">
+                  <div className="flex justify-between">
+                    <span>اسم المستخدم:</span>
+                    <span className="font-mono text-gray-700 font-bold">{user.username}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>البريد الإلكتروني:</span>
+                    <span className="text-gray-700">{user.email}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span>البريد الإلكتروني:</span>
-                <span className="text-gray-700">{user.email}</span>
-              </div>
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+      )}
 
       {/* Modal */}
       {showModal && (
