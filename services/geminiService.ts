@@ -8,13 +8,13 @@ export const extractDrugData = async (base64Data: string, mimeType: string = "im
       apiKey = (import.meta as any).env.VITE_API_KEY || '';
     }
     
-    // Fallback if defined elsewhere (though less likely in pure Vite)
+    // Fallback if defined elsewhere
     if (!apiKey && typeof process !== 'undefined' && process.env) {
         apiKey = process.env.API_KEY || '';
     }
 
     if (!apiKey) {
-        throw new Error("مفتاح API غير متوفر. يرجى التأكد من إعداد المتغير VITE_API_KEY في Vercel.");
+        throw new Error("MISSING_KEY");
     }
 
     // Initialize the client
@@ -78,8 +78,11 @@ export const extractDrugData = async (base64Data: string, mimeType: string = "im
 
   } catch (error: any) {
     console.error("Gemini OCR Error:", error);
+    if (error.message === "MISSING_KEY") {
+        throw new Error("مفتاح API مفقود. يرجى إنشاء ملف .env وإضافة VITE_API_KEY=your_key");
+    }
     if (error.message && (error.message.includes('API key') || error.message.includes('permission denied'))) {
-        throw new Error("فشل الاتصال: مفتاح API غير صالح أو غير موجود.");
+        throw new Error("مفتاح API غير صالح. يرجى التأكد من صحة المفتاح في ملف .env");
     }
     throw error;
   }

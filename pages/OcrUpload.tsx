@@ -17,7 +17,8 @@ import {
   Pause,
   RefreshCw,
   Clock,
-  Ban
+  Ban,
+  Key
 } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
@@ -34,6 +35,7 @@ export const OcrUpload: React.FC = () => {
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [stopSignal, setStopSignal] = useState(false);
+  const [showApiKeyHelp, setShowApiKeyHelp] = useState(false);
   
   // Stats
   const completedCount = queue.filter(q => q.status === 'success').length;
@@ -88,6 +90,7 @@ export const OcrUpload: React.FC = () => {
 
     setIsProcessing(true);
     setStopSignal(false);
+    setShowApiKeyHelp(false);
 
     // Filter pending items
     const pendingItems = queue.filter(item => item.status === 'pending' || item.status === 'error' || item.status === 'skipped');
@@ -135,6 +138,14 @@ export const OcrUpload: React.FC = () => {
          } catch (error: any) {
             console.error(`Error processing ${item.file.name}:`, error);
             
+            // Handle Missing API Key specifically
+            if (error.message && error.message.includes('API')) {
+                setStopSignal(true);
+                setShowApiKeyHelp(true);
+                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', message: 'مشكلة في مفتاح API' } : q));
+                break;
+            }
+
             // Check for Rate Limit (429)
             if (JSON.stringify(error).includes('429') || error.message?.includes('429') || error.message?.includes('quota')) {
                 // If we already retried and failed again with 429, it's likely the Daily Limit
@@ -204,8 +215,40 @@ export const OcrUpload: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 h-full min-h-[600px] gap-6">
+    <div className="flex flex-col flex-1 h-full min-h-[600px] gap-6 relative">
       
+      {/* API Key Help Modal */}
+      {showApiKeyHelp && (
+        <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-8 rounded-2xl animate-fade-in text-center border-2 border-orange-100">
+           <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
+             <Key size={32} />
+           </div>
+           <h2 className="text-2xl font-bold text-gray-800 mb-2">مفتاح الذكاء الاصطناعي مفقود</h2>
+           <p className="text-gray-500 max-w-lg mb-6 leading-relaxed">
+             لتشغيل ميزة استخراج البيانات (OCR)، يجب عليك إعداد مفتاح Google Gemini API الخاص بك. النظام يعمل حالياً في الوضع المحلي ولا يحتوي على المفتاح.
+           </p>
+           
+           <div className="bg-gray-900 text-gray-100 p-4 rounded-xl text-left dir-ltr w-full max-w-lg mb-6 font-mono text-sm overflow-x-auto shadow-inner">
+             <div className="flex gap-2 mb-2 border-b border-gray-700 pb-2">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                <span className="text-gray-400 text-xs ml-2">.env (New File)</span>
+             </div>
+             <p className="text-green-400"># 1. Create a file named ".env" in project root</p>
+             <p className="text-green-400"># 2. Add your key like this:</p>
+             <p className="mt-2 text-white">VITE_API_KEY=AIzaSyB...</p>
+           </div>
+
+           <button 
+             onClick={() => setShowApiKeyHelp(false)}
+             className="px-8 py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition-colors shadow-lg"
+           >
+             فهمت، سأقوم بإضافته
+           </button>
+        </div>
+      )}
+
       {/* Header Area */}
       <div className="flex justify-between items-end shrink-0">
         <div>
