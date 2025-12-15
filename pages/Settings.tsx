@@ -51,8 +51,10 @@ export const Settings: React.FC = () => {
             password: formData.password
         });
         if (updated) {
-            sessionStorage.setItem('pharma_session', JSON.stringify(updated));
-            setCurrentUser(updated);
+            // Fix: Merge updated partial user with current user state to ensure full User type
+            const fullUser = { ...currentUser, ...updated } as User;
+            sessionStorage.setItem('pharma_session', JSON.stringify(fullUser));
+            setCurrentUser(fullUser);
             setMessage({ type: 'success', text: 'تم تحديث البيانات بنجاح' });
             setTimeout(() => setMessage(null), 3000);
         }
