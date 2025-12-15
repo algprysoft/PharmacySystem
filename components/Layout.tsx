@@ -244,7 +244,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 md:p-6 w-full">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-4 md:p-6 w-full flex flex-col">
           {children}
         </main>
       </div>
